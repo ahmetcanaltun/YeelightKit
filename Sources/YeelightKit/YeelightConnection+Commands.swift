@@ -112,6 +112,54 @@ extension YeelightConnection {
         try await send(method, parameters: [.int(rgb), .init(effect), .int(duration)])
     }
 
+    // MARK: - Colour flow
+
+    /// Hands an animation to the device to run on its own.
+    ///
+    /// Preferred over stepping an animation from the caller: one command instead
+    /// of one per step, so the 60-per-minute quota stops being a constraint and
+    /// the flow outlives the process that started it.
+    public func start(_ flow: ColorFlow) async throws {
+        let flow = try flow.validated()
+        try await send(.startColorFlow, parameters: [
+            .int(flow.changeCount), .int(flow.completion.rawValue), .string(flow.expression)
+        ])
+    }
+
+    public func stopColorFlow() async throws {
+        try await send(.stopColorFlow)
+    }
+
+    public func startBackgroundColorFlow(_ flow: ColorFlow) async throws {
+        let flow = try flow.validated()
+        try await send(.backgroundStartColorFlow, parameters: [
+            .int(flow.changeCount), .int(flow.completion.rawValue), .string(flow.expression)
+        ])
+    }
+
+    public func stopBackgroundColorFlow() async throws {
+        try await send(.backgroundStopColorFlow)
+    }
+
+    /// Runs the flow wherever this device can show colour — the main light on a
+    /// bulb, the background light on a Monitor Light Bar.
+    public func startOnAvailableEndpoint(_ flow: ColorFlow) async throws {
+        switch device.colorMethod {
+        case .setRGB: try await start(flow)
+        case .backgroundSetRGB: try await startBackgroundColorFlow(flow)
+        default: throw YeelightError.unsupportedMethod(.startColorFlow)
+        }
+    }
+
+    /// Stops a flow on whichever endpoint ``startOnAvailableEndpoint(_:)`` used.
+    public func stopFlowOnAvailableEndpoint() async throws {
+        switch device.colorMethod {
+        case .setRGB: try await stopColorFlow()
+        case .backgroundSetRGB: try await stopBackgroundColorFlow()
+        default: throw YeelightError.unsupportedMethod(.stopColorFlow)
+        }
+    }
+
     // MARK: - Helpers
 
     private static func validate(_ value: Int, in range: ClosedRange<Int>, name: String) throws {

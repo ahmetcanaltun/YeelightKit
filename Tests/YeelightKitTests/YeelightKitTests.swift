@@ -195,3 +195,101 @@ final class CommandValidationTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(YeelightConnection.minimumCommandInterval, .seconds(1))
     }
 }
+
+// MARK: - Colour flow
+
+final class ColorFlowTests: XCTestCase {
+
+    /// The expression is a flat list of duration, mode, value, brightness.
+    func testExpressionLayout() {
+        let flow = ColorFlow(steps: [
+            .init(duration: .milliseconds(1000), .colorTemperature(kelvin: 2700, brightness: 100)),
+            .init(duration: .milliseconds(500), .color(rgb: 255, brightness: 10))
+        ])
+        XCTAssertEqual(flow.expression, "1000,2,2700,100,500,1,255,10")
+    }
+
+    /// Omitting brightness must send -1, which tells the device to keep its own.
+    func testMissingBrightnessBecomesMinusOne() {
+        let flow = ColorFlow(steps: [.init(.color(rgb: 0xFF0000))])
+        XCTAssertEqual(flow.expression, "500,1,16711680,-1")
+    }
+
+    func testWaitStepUsesSleepMode() {
+        let flow = ColorFlow(steps: [.init(duration: .seconds(5), .wait)])
+        XCTAssertEqual(flow.expression, "5000,7,0,-1")
+    }
+
+    func testPoliceRunsForeverAndRestoresAfterwards() {
+        let flow = ColorFlow.police
+        XCTAssertEqual(flow.changeCount, 0, "0 means the device loops indefinitely")
+        XCTAssertEqual(flow.completion, .restorePrevious)
+        XCTAssertEqual(flow.steps.count, 2)
+    }
+
+    /// The firmware rejects steps under 50ms, so catch it before sending.
+    func testRejectsStepShorterThanFirmwareAllows() {
+        let flow = ColorFlow(steps: [.init(duration: .milliseconds(10), .color(rgb: 0))])
+        XCTAssertThrowsError(try flow.validated())
+    }
+
+    func testRejectsEmptyFlow() {
+        XCTAssertThrowsError(try ColorFlow(steps: []).validated())
+    }
+
+    func testRejectsOutOfRangeBrightness() {
+        let flow = ColorFlow(steps: [.init(.color(rgb: 0, brightness: 0))])
+        XCTAssertThrowsError(try flow.validated(), "0 is not a valid brightness; -1 or 1...100")
+    }
+
+    func testSunsetRunsOnceThenTurnsOff() {
+        let flow = ColorFlow.sunset(over: .seconds(600))
+        XCTAssertEqual(flow.completion, .turnOff)
+        XCTAssertEqual(flow.changeCount, 2)
+        XCTAssertNoThrow(try flow.validated())
+    }
+
+    func testReadyMadeFlowsAreAllValid() {
+        for flow in [ColorFlow.police, .rainbow, .candle] {
+            XCTAssertNoThrow(try flow.validated())
+        }
+    }
+}
+
+final class FlowRoutingTests: XCTestCase {
+
+    /// The light bar has no RGB on its main light, so a flow has to go to the
+    /// background light instead.
+    func testFlowGoesToBackgroundLightOnColorTemperatureOnlyDevice() async {
+        let bar = YeelightDevice(id: "bar", host: "127.0.0.1",
+                                support: ["set_ct_abx", "bg_set_rgb", "bg_start_cf", "bg_set_power"])
+        let connection = YeelightConnection(device: bar)
+
+        // Not connected, so this fails at the transport — but only after routing
+        // has picked bg_start_cf rather than rejecting the method outright.
+        do {
+            try await connection.startOnAvailableEndpoint(.police)
+            XCTFail("expected a transport failure")
+        } catch YeelightError.notConnected {
+            // routed correctly
+        } catch YeelightError.unsupportedMethod(let method) {
+            XCTFail("routed to an unsupported method: \(method.rawValue)")
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+
+    func testFlowIsRejectedWhenDeviceHasNoColorAtAll() async {
+        let mono = YeelightDevice(id: "mono", host: "127.0.0.1",
+                                  support: ["set_power", "set_bright"])
+        let connection = YeelightConnection(device: mono)
+        do {
+            try await connection.startOnAvailableEndpoint(.rainbow)
+            XCTFail("expected rejection")
+        } catch YeelightError.unsupportedMethod {
+            // expected
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+}

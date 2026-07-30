@@ -27,6 +27,9 @@ public struct YeelightState: Sendable, Equatable {
     /// 0...100
     public var saturation: Int?
     public var colorMode: ColorMode?
+    /// A colour flow is running on the device. Survives the connection that
+    /// started it, so this is the only honest source after a restart.
+    public var isFlowing: Bool?
 
     // Background ("ambient") light
     public var backgroundIsOn: Bool?
@@ -34,6 +37,7 @@ public struct YeelightState: Sendable, Equatable {
     public var backgroundColorTemperature: Int?
     public var backgroundRGB: Int?
     public var backgroundColorMode: ColorMode?
+    public var backgroundIsFlowing: Bool?
 
     public init() {}
 
@@ -60,12 +64,14 @@ public struct YeelightState: Sendable, Equatable {
         hue = number(.hue)
         saturation = number(.saturation)
         colorMode = number(.colorMode).flatMap(ColorMode.init(rawValue:))
+        if let value = text(.flowing) { isFlowing = (value == "1") }
 
         if let power = text(.backgroundPower) { backgroundIsOn = (power == "on") }
         backgroundBrightness = number(.backgroundBright)
         backgroundColorTemperature = number(.backgroundColorTemperature)
         backgroundRGB = number(.backgroundRGB)
         backgroundColorMode = number(.backgroundColorMode).flatMap(ColorMode.init(rawValue:))
+        if let value = text(.backgroundFlowing) { backgroundIsFlowing = (value == "1") }
     }
 
     /// Overlays any values the other state actually carries, leaving the rest
@@ -80,11 +86,13 @@ public struct YeelightState: Sendable, Equatable {
         if let v = update.hue { result.hue = v }
         if let v = update.saturation { result.saturation = v }
         if let v = update.colorMode { result.colorMode = v }
+        if let v = update.isFlowing { result.isFlowing = v }
         if let v = update.backgroundIsOn { result.backgroundIsOn = v }
         if let v = update.backgroundBrightness { result.backgroundBrightness = v }
         if let v = update.backgroundColorTemperature { result.backgroundColorTemperature = v }
         if let v = update.backgroundRGB { result.backgroundRGB = v }
         if let v = update.backgroundColorMode { result.backgroundColorMode = v }
+        if let v = update.backgroundIsFlowing { result.backgroundIsFlowing = v }
         return result
     }
 }

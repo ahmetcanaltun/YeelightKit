@@ -59,6 +59,10 @@ public enum YeelightProperty: String, Sendable, CaseIterable {
     case saturation = "sat"
     case colorMode = "color_mode"
     case name
+    /// "1" while a colour flow is running on the device.
+    case flowing
+    /// The running flow's `count,action,expression`, useful for diagnostics.
+    case flowParameters = "flow_params"
 
     case backgroundPower = "bg_power"
     case backgroundBright = "bg_bright"
@@ -67,4 +71,6 @@ public enum YeelightProperty: String, Sendable, CaseIterable {
     case backgroundHue = "bg_hue"
     case backgroundSaturation = "bg_sat"
     case backgroundColorMode = "bg_lmode"
+    case backgroundFlowing = "bg_flowing"
+    case backgroundFlowParameters = "bg_flow_params"
 }
