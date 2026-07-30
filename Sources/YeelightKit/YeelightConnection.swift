@@ -32,8 +32,19 @@ public actor YeelightConnection {
     private var stateContinuations: [UUID: AsyncStream<YeelightState>.Continuation] = [:]
     private var lastState = YeelightState()
 
+    private var reconnectTask: Task<Void, Never>?
+    private var reconnectAttempt = 0
+    /// False once `close()` has been called, so the teardown that follows is not
+    /// mistaken for a drop worth recovering from.
+    private var wantsConnection = false
+
     /// How long to wait for a reply before giving up.
     public var timeout: Duration = .seconds(5)
+
+    /// Attempts to reconnect on its own after an unexpected drop, backing off
+    /// between tries. Set to 0 to never reconnect. An explicit ``close()``
+    /// always wins — it is treated as intent, not as a failure.
+    public var maximumReconnectAttempts = 5
 
     public init(device: YeelightDevice) {
         self.device = device
@@ -42,6 +53,7 @@ public actor YeelightConnection {
     deinit {
         // An NWConnection lives until cancelled; dropping the reference alone
         // would leak one of the device's four slots.
+        reconnectTask?.cancel()
         connection?.cancel()
     }
 
@@ -54,6 +66,7 @@ public actor YeelightConnection {
     public func connect() async throws {
         if connection?.state == .ready { return }
         close()
+        wantsConnection = true
 
         let parameters = NWParameters.tcp
         if let tcp = parameters.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options {
@@ -89,11 +102,18 @@ public actor YeelightConnection {
             connection.start(queue: .global(qos: .userInitiated))
         }
 
+        reconnectAttempt = 0
         receiveLoop(on: connection)
     }
 
     /// Cancels the connection and releases the device slot it holds.
+    ///
+    /// Also cancels any pending reconnection: closing is an instruction, not a
+    /// failure to recover from.
     public func close() {
+        wantsConnection = false
+        reconnectTask?.cancel()
+        reconnectTask = nil
         connection?.stateUpdateHandler = nil
         connection?.cancel()
         connection = nil
@@ -231,6 +251,32 @@ public actor YeelightConnection {
             continuation.resume(throwing: YeelightError.connectionFailed(reason))
         }
         pending.removeAll()
+        scheduleReconnect()
+    }
+
+    /// Reconnects with a linear backoff. Only one attempt is ever in flight.
+    private func scheduleReconnect() {
+        guard wantsConnection,
+              maximumReconnectAttempts > 0,
+              reconnectAttempt < maximumReconnectAttempts,
+              reconnectTask == nil else { return }
+
+        reconnectAttempt += 1
+        let delay = Duration.seconds(2 * reconnectAttempt)
+
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            await self?.finishReconnect()
+        }
+    }
+
+    private func finishReconnect() async {
+        reconnectTask = nil
+        guard wantsConnection, connection?.state != .ready else { return }
+        // A failure here lands back in handleDisconnect, which backs off again
+        // until the attempt limit is reached.
+        try? await connect()
     }
 
     private func ingest(_ data: Data) {
