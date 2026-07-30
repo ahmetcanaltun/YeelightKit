@@ -31,6 +31,7 @@ public enum YeelightMethod: String, Sendable, CaseIterable {
     case backgroundSetColorTemperature = "bg_set_ct_abx"
     case backgroundSetRGB = "bg_set_rgb"
     case backgroundSetHSV = "bg_set_hsv"
+    case backgroundSetScene = "bg_set_scene"
     case backgroundStartColorFlow = "bg_start_cf"
     case backgroundStopColorFlow = "bg_stop_cf"
 }

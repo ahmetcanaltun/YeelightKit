@@ -112,6 +112,23 @@ extension YeelightConnection {
         try await send(method, parameters: [.int(rgb), .init(effect), .int(duration)])
     }
 
+    // MARK: - Scenes
+
+    /// Applies a whole lighting state in one command, turning the light on as
+    /// part of it.
+    ///
+    /// Use this rather than `setPower(true)` followed by adjustments: those are
+    /// separate requests, the device rejects brightness and colour while the
+    /// light is still off, and nothing guarantees the power command wins the
+    /// race. See ``LightScene``.
+    public func setScene(_ scene: LightScene) async throws {
+        try await send(.setScene, parameters: scene.validated().parameters)
+    }
+
+    public func setBackgroundScene(_ scene: LightScene) async throws {
+        try await send(.backgroundSetScene, parameters: scene.validated().parameters)
+    }
+
     // MARK: - Colour flow
 
     /// Hands an animation to the device to run on its own.
