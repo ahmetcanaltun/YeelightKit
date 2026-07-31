@@ -3,3 +3,6 @@
 .swiftpm/
 *.xcodeproj
 Package.resolved
+
+# Local working notes, not part of the repository
+DEVICES.md
