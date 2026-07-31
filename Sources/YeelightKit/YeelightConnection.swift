@@ -205,19 +205,43 @@ public actor YeelightConnection {
             group.addTask {
                 try await self.awaitReply(id: id, sending: line, on: connection)
             }
-            defer { group.cancelAll() }
+            defer {
+                group.cancelAll()
+                // Release the request whatever happened. On the timeout path this
+                // is what lets the group finish; on the success path the reply
+                // already removed it and this does nothing. Removing without
+                // resuming would leak the continuation instead.
+                fail(id: id, with: .timeout)
+            }
             guard let result = try await group.next() else { throw YeelightError.timeout }
             return result
         }
     }
 
+    /// Waits for the reply to `id`, and **gives up when cancelled**.
+    ///
+    /// The cancellation handling is not a nicety. A continuation is not
+    /// cancellation-aware by itself, and a task group waits for every child
+    /// before it rethrows — so without this, a command that times out leaves this
+    /// task parked forever and ``send(_:parameters:)`` never returns at all,
+    /// which is strictly worse than the timeout it was supposed to report.
     private func awaitReply(id: Int, sending payload: Data, on connection: NWConnection) async throws -> [String] {
-        try await withCheckedThrowingContinuation { continuation in
-            pending[id] = continuation
-            connection.send(content: payload, completion: .contentProcessed { [weak self] error in
-                guard let error else { return }
-                Task { await self?.fail(id: id, with: .connectionFailed(error.localizedDescription)) }
-            })
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String], Error>) in
+                // Cancellation can land before the body runs, in which case the
+                // handler below has nothing to find yet.
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                pending[id] = continuation
+                connection.send(content: payload, completion: .contentProcessed { [weak self] error in
+                    guard let error else { return }
+                    Task { await self?.fail(id: id, with: .connectionFailed(error.localizedDescription)) }
+                })
+            }
+        } onCancel: {
+            Task { [weak self] in await self?.fail(id: id, with: .timeout) }
         }
     }
 
