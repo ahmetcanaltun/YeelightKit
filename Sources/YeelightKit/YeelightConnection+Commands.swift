@@ -140,19 +140,6 @@ extension YeelightConnection {
         try await send(.setSegmentRGB, parameters: colors.map { .int($0) })
     }
 
-    /// Number of independently colourable sections, when this is known.
-    ///
-    /// There is no way to ask the device, and nothing reports it, so this is a
-    /// table of what has actually been observed. `nil` means the light has no
-    /// segments, or has them and we have never counted them.
-    public var segmentCount: Int? {
-        guard device.supports(.setSegmentRGB), !device.support.isEmpty else { return nil }
-        switch device.model {
-        case "lamp15": return 3     // counted on hardware 2026-07-31
-        default: return nil
-        }
-    }
-
     // MARK: - Scenes
 
     /// Applies a whole lighting state in one command, turning the light on as
