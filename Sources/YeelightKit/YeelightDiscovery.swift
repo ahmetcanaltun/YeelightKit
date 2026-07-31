@@ -37,7 +37,7 @@ public struct YeelightDiscovery: Sendable {
                 await withTaskGroup(of: Void.self) { group in
                     for address in await Self.localAddresses() {
                         group.addTask {
-                            await Self.search(on: address, for: duration) { device in
+                            for await device in Self.search(on: address, for: duration) {
                                 if await seen.insert(device.id) {
                                     continuation.yield(device)
                                 }
@@ -77,8 +77,11 @@ public struct YeelightDiscovery: Sendable {
 
         for pointer in sequence(first: first, next: { $0.pointee.ifa_next }) {
             let flags = Int32(pointer.pointee.ifa_flags)
+            // Point-to-point interfaces are VPN tunnels; a light is never on the
+            // far end of one, so searching there only costs a socket and a thread.
             guard flags & IFF_UP != 0,
                   flags & IFF_LOOPBACK == 0,
+                  flags & IFF_POINTOPOINT == 0,
                   flags & IFF_MULTICAST != 0,
                   let raw = pointer.pointee.ifa_addr,
                   raw.pointee.sa_family == UInt8(AF_INET) else { continue }
@@ -96,21 +99,42 @@ public struct YeelightDiscovery: Sendable {
         return addresses.isEmpty ? [nil] : addresses
     }
 
-    private static func search(
-        on address: String?,
-        for duration: Duration,
-        onDevice: @escaping @Sendable (YeelightDevice) async -> Void
-    ) async {
-        guard let socket = try? SSDPSocket(localAddress: address) else { return }
-        defer { socket.close() }
+    /// Searches on one interface, off the cooperative thread pool.
+    ///
+    /// ``SSDPSocket/receive()`` blocks, and the loop below never suspends for the
+    /// whole search window. Run on the cooperative pool — one thread per core —
+    /// a sweep across several interfaces holds a large fraction of it for
+    /// seconds at a time, and *everything* else in the process queues behind
+    /// that, including the parsing of replies arriving on a control connection.
+    /// It is the difference between a light answering in time and appearing dead.
+    ///
+    /// So the blocking work goes to a dedicated queue, and the caller consumes an
+    /// `AsyncStream`, which suspends properly.
+    private static func search(on address: String?, for duration: Duration) -> AsyncStream<YeelightDevice> {
+        AsyncStream { continuation in
+            let stopped = CancellationFlag()
+            continuation.onTermination = { _ in stopped.set() }
 
-        socket.send(searchRequest, toHost: multicastHost, port: multicastPort)
+            let queue = DispatchQueue(label: "com.yeelightkit.ssdp.\(address ?? "default")")
+            queue.async {
+                guard let socket = try? SSDPSocket(localAddress: address) else {
+                    continuation.finish()
+                    return
+                }
+                defer {
+                    socket.close()
+                    continuation.finish()
+                }
 
-        let deadline = ContinuousClock.now + duration
-        while ContinuousClock.now < deadline, !Task.isCancelled {
-            guard let response = socket.receive() else { continue }
-            if let device = parse(response: response) {
-                await onDevice(device)
+                socket.send(searchRequest, toHost: multicastHost, port: multicastPort)
+
+                let deadline = ContinuousClock.now + duration
+                while ContinuousClock.now < deadline, !stopped.isSet {
+                    guard let response = socket.receive() else { continue }
+                    if let device = parse(response: response) {
+                        continuation.yield(device)
+                    }
+                }
             }
         }
     }
@@ -141,6 +165,25 @@ public struct YeelightDiscovery: Sendable {
             firmwareVersion: headers["fw_ver"],
             support: Set(headers["support"]?.split(separator: " ").map(String.init) ?? [])
         )
+    }
+}
+
+/// Lets the consuming task stop a blocking loop that cannot check
+/// `Task.isCancelled` itself, because it does not run on a task at all.
+private final class CancellationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    var isSet: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func set() {
+        lock.lock()
+        value = true
+        lock.unlock()
     }
 }
 
