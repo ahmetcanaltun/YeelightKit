@@ -20,12 +20,16 @@ public struct YeelightDiscovery: Sendable {
     private static let multicastHost = "239.255.255.250"
     private static let multicastPort: UInt16 = 1982
 
-    private static let searchRequest = Data("""
-    M-SEARCH * HTTP/1.1\r
-    HOST: 239.255.255.250:1982\r
-    MAN: "ssdp:discover"\r
-    ST: wifi_bulb\r\n
-    """.utf8)
+    /// The `HOST` header names whoever the search is aimed at, which for a
+    /// direct probe is the device itself rather than the multicast group.
+    private static func searchRequest(to host: String) -> Data {
+        Data("""
+        M-SEARCH * HTTP/1.1\r
+        HOST: \(host):\(multicastPort)\r
+        MAN: "ssdp:discover"\r
+        ST: wifi_bulb\r\n
+        """.utf8)
+    }
 
     /// Emits each distinct device as it answers, finishing after `duration`.
     ///
@@ -49,6 +53,29 @@ public struct YeelightDiscovery: Sendable {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// Asks one device at a known address to describe itself.
+    ///
+    /// SSDP is normally multicast, but the search is an ordinary UDP datagram
+    /// and a device answers one sent straight to its own address just as well.
+    /// That matters because the `support` list — the input to every capability
+    /// decision — exists *only* in this advertisement. A device the user added
+    /// by typing an IP otherwise stays permanently unknown, however long it
+    /// stays connected.
+    ///
+    /// Replies from any other address are ignored, so a stray answer to the
+    /// broadcast cannot be mistaken for this device.
+    ///
+    /// - Returns: the device as it describes itself, or `nil` if it did not
+    ///   answer in time. Not answering is not evidence of anything — the
+    ///   local network privacy gate blocks this silently for an unapproved
+    ///   binary, exactly as it does the multicast search.
+    public func probe(host: String, for duration: Duration = .seconds(2)) async -> YeelightDevice? {
+        for await device in Self.search(on: nil, sendingTo: host, for: duration) {
+            if device.host == host { return device }
+        }
+        return nil
     }
 
     /// Collects everything that answers within `duration`.
@@ -110,12 +137,17 @@ public struct YeelightDiscovery: Sendable {
     ///
     /// So the blocking work goes to a dedicated queue, and the caller consumes an
     /// `AsyncStream`, which suspends properly.
-    private static func search(on address: String?, for duration: Duration) -> AsyncStream<YeelightDevice> {
+    ///
+    /// - Parameter target: where the search goes. The multicast group for a
+    ///   sweep, a device's own address for a direct probe.
+    private static func search(on address: String?,
+                               sendingTo target: String = multicastHost,
+                               for duration: Duration) -> AsyncStream<YeelightDevice> {
         AsyncStream { continuation in
             let stopped = CancellationFlag()
             continuation.onTermination = { _ in stopped.set() }
 
-            let queue = DispatchQueue(label: "com.yeelightkit.ssdp.\(address ?? "default")")
+            let queue = DispatchQueue(label: "com.yeelightkit.ssdp.\(address ?? target)")
             queue.async {
                 guard let socket = try? SSDPSocket(localAddress: address) else {
                     continuation.finish()
@@ -126,7 +158,7 @@ public struct YeelightDiscovery: Sendable {
                     continuation.finish()
                 }
 
-                socket.send(searchRequest, toHost: multicastHost, port: multicastPort)
+                socket.send(searchRequest(to: target), toHost: target, port: multicastPort)
 
                 let deadline = ContinuousClock.now + duration
                 while ContinuousClock.now < deadline, !stopped.isSet {
