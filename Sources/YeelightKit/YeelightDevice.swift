@@ -74,3 +74,77 @@ public struct YeelightDevice: Sendable, Identifiable, Hashable, Codable {
     public static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
     public func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
+
+// MARK: - Working out what an unadvertised device can do
+
+extension YeelightDevice {
+
+    /// Methods no `get_prop` can prove or disprove, and which every documented
+    /// device has. Assuming them keeps a hand-entered device exactly as capable
+    /// as it is today, so inference can only ever *narrow* the guesswork.
+    private static let assumedMethods: Set<YeelightMethod> = [
+        .getProp, .setPower, .toggle, .setBright, .setDefault, .setName,
+        .setScene, .startColorFlow, .stopColorFlow, .adjustBright,
+        .cronAdd, .cronGet, .cronDelete
+    ]
+
+    /// Derives a support list from what a device answered `get_prop` with.
+    ///
+    /// A device only advertises its `support` list over SSDP, so one the user
+    /// added by typing an IP arrives with nothing — and `supports(_:)` then has
+    /// to assume everything, which is why a colour-temperature-only bar can
+    /// still be shown a colour picker it will refuse.
+    ///
+    /// An unknown property comes back as an empty string rather than an error,
+    /// which makes `get_prop` a free capability test: a device that reports no
+    /// `bg_power` has no background light, and one that reports no `rgb`, `hue`
+    /// or `sat` has no colour. What cannot be probed is assumed present, so the
+    /// result is never *less* capable than the "assume everything" it replaces.
+    ///
+    /// - Returns: an inferred support list, or an empty set meaning "learned
+    ///   nothing" — a device that answered no property at all is unreadable
+    ///   rather than featureless, and callers must keep treating it as unknown.
+    ///
+    /// - Note: `set_segment_rgb` is deliberately absent. It has no readable
+    ///   property (twenty-two candidate names all came back empty on hardware),
+    ///   so segmented control cannot be inferred and only a discovered device
+    ///   gets it. `set_music` is inferred from `music_on`, which is weaker
+    ///   evidence: the property could exist on a device that does not advertise
+    ///   the method.
+    public static func inferredSupport(fromProperties properties: [String: String]) -> Set<String> {
+        func has(_ property: YeelightProperty) -> Bool {
+            guard let value = properties[property.rawValue] else { return false }
+            return !value.isEmpty
+        }
+
+        // No power and no brightness means the device told us nothing usable —
+        // an empty answer, a wedged light, a timeout. Inferring from that would
+        // strip a working device of its controls.
+        guard has(.power) || has(.mainPower) || has(.bright) else { return [] }
+
+        var methods = assumedMethods
+
+        if has(.colorTemperature) {
+            methods.formUnion([.setColorTemperature, .adjustColorTemperature])
+        }
+        if has(.rgb) || has(.hue) || has(.saturation) {
+            methods.formUnion([.setRGB, .setHSV, .adjustColor])
+        }
+        if has(.musicOn) {
+            methods.insert(.setMusic)
+        }
+
+        if has(.backgroundPower) {
+            methods.formUnion([.backgroundSetPower, .backgroundToggle, .backgroundSetBright,
+                               .backgroundSetScene, .backgroundStartColorFlow, .backgroundStopColorFlow])
+            if has(.backgroundColorTemperature) {
+                methods.insert(.backgroundSetColorTemperature)
+            }
+            if has(.backgroundRGB) || has(.backgroundHue) || has(.backgroundSaturation) {
+                methods.formUnion([.backgroundSetRGB, .backgroundSetHSV])
+            }
+        }
+
+        return Set(methods.map(\.rawValue))
+    }
+}

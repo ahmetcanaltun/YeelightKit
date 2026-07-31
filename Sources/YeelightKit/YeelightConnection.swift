@@ -38,7 +38,9 @@ public actor YeelightConnection {
     /// Slowest safe cadence for repeated commands: 60 per minute per connection.
     public static let minimumCommandInterval: Duration = .seconds(1)
 
-    public let device: YeelightDevice
+    /// Mutable only so ``learnCapabilities()`` can fill in a support list the
+    /// device never advertised. Nothing else changes it.
+    public private(set) var device: YeelightDevice
 
     private var connection: NWConnection?
     private var nextRequestID = 0
@@ -201,6 +203,15 @@ public actor YeelightConnection {
     /// and are simply left `nil`.
     @discardableResult
     public func refreshState() async throws -> YeelightState {
+        publish(YeelightState(properties: try await readProperties()))
+        return lastState
+    }
+
+    /// One `get_prop` for everything the library knows how to read, keyed by
+    /// property name. Values are kept verbatim, empty ones included: an empty
+    /// answer is the device saying it does not have that property, which is
+    /// information in itself.
+    private func readProperties() async throws -> [String: String] {
         let names = YeelightProperty.allCases.map(\.rawValue)
         let values = try await send(.getProp, parameters: names.map { .string($0) })
 
@@ -208,9 +219,35 @@ public actor YeelightConnection {
         for (name, value) in zip(names, values) {
             properties[name] = value
         }
+        return properties
+    }
 
+    /// Works out what a hand-entered device can do, by asking it.
+    ///
+    /// Only devices found over SSDP carry a `support` list; one the user typed
+    /// an IP for arrives with nothing, and every capability check then has to
+    /// assume the best. This reads the properties the device actually answers
+    /// and derives a list from them — see
+    /// ``YeelightDevice/inferredSupport(fromProperties:)`` for what can and
+    /// cannot be established that way.
+    ///
+    /// Does nothing for a device that already advertised its own list: a real
+    /// advertisement always beats a guess. The state read on the way is
+    /// published like any other, so calling this instead of ``refreshState()``
+    /// costs nothing extra.
+    ///
+    /// - Returns: the support list now in force, empty if nothing was learned.
+    @discardableResult
+    public func learnCapabilities() async throws -> Set<String> {
+        guard device.support.isEmpty else { return device.support }
+
+        let properties = try await readProperties()
         publish(YeelightState(properties: properties))
-        return lastState
+
+        let inferred = YeelightDevice.inferredSupport(fromProperties: properties)
+        guard !inferred.isEmpty else { return [] }
+        device.support = inferred
+        return inferred
     }
 
     // MARK: - Sending

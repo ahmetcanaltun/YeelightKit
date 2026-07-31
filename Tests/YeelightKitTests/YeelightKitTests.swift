@@ -83,6 +83,86 @@ final class DeviceCapabilityTests: XCTestCase {
     }
 }
 
+/// Deriving a support list from what a device answers `get_prop` with, for
+/// devices that never advertised one.
+final class InferredCapabilityTests: XCTestCase {
+
+    /// What `lamp15` answers: a background light, colour only on it, no
+    /// moonlight mode. Values as captured from the device.
+    private let lightBarProperties = [
+        "power": "on", "main_power": "on", "bright": "80", "ct": "4000",
+        "rgb": "", "hue": "", "sat": "", "color_mode": "2",
+        "bg_power": "on", "bg_bright": "2", "bg_ct": "4000", "bg_rgb": "16711680",
+        "bg_hue": "0", "bg_sat": "100", "bg_lmode": "1",
+        "delayoff": "0", "music_on": "0", "active_mode": "", "nl_br": ""
+    ]
+
+    /// What a colour bulb answers: colour on the main light, no background.
+    private let bulbProperties = [
+        "power": "on", "main_power": "", "bright": "50", "ct": "4000",
+        "rgb": "16711680", "hue": "0", "sat": "100", "color_mode": "1",
+        "bg_power": "", "bg_bright": "", "bg_rgb": "", "music_on": "0"
+    ]
+
+    func testColourIsRuledOutWhenTheDeviceReportsNone() {
+        let support = YeelightDevice.inferredSupport(fromProperties: lightBarProperties)
+        let device = YeelightDevice(id: "m", host: "10.0.0.2", support: support)
+
+        XCTAssertFalse(device.supports(.setRGB))
+        XCTAssertFalse(device.supports(.setHSV))
+        XCTAssertTrue(device.supports(.setColorTemperature))
+        // Colour work still has somewhere to go: the background light.
+        XCTAssertEqual(device.colorMethod, .backgroundSetRGB)
+    }
+
+    func testBackgroundLightIsRuledOutWhenTheDeviceReportsNone() {
+        let support = YeelightDevice.inferredSupport(fromProperties: bulbProperties)
+        let device = YeelightDevice(id: "m", host: "10.0.0.2", support: support)
+
+        XCTAssertFalse(device.hasBackgroundLight)
+        XCTAssertFalse(device.supports(.backgroundSetPower))
+        XCTAssertEqual(device.colorMethod, .setRGB)
+    }
+
+    /// Nothing here is probeable, so all of it has to survive inference —
+    /// otherwise learning would cost a device features it really has.
+    func testMethodsThatCannotBeProbedAreKept() {
+        let support = YeelightDevice.inferredSupport(fromProperties: lightBarProperties)
+        let device = YeelightDevice(id: "m", host: "10.0.0.2", support: support)
+
+        XCTAssertTrue(device.supports(.setPower))
+        XCTAssertTrue(device.supports(.setBright))
+        XCTAssertTrue(device.supports(.setScene))
+        XCTAssertTrue(device.supports(.startColorFlow))
+        XCTAssertTrue(device.supports(.cronAdd))
+    }
+
+    /// A device that answered nothing is unreadable, not featureless. Narrowing
+    /// on that would strip a working light of its controls.
+    func testAnEmptyAnswerLearnsNothing() {
+        XCTAssertTrue(YeelightDevice.inferredSupport(fromProperties: [:]).isEmpty)
+        XCTAssertTrue(YeelightDevice.inferredSupport(
+            fromProperties: ["power": "", "main_power": "", "bright": "", "rgb": ""]).isEmpty)
+    }
+
+    /// Segments have no readable property, so they can only come from a real
+    /// advertisement. Claiming them would send every ambient frame to a method
+    /// the device rejects.
+    func testSegmentsAreNeverInferred() {
+        let support = YeelightDevice.inferredSupport(fromProperties: lightBarProperties)
+        XCTAssertFalse(support.contains(YeelightMethod.setSegmentRGB.rawValue))
+    }
+
+    func testMusicModeFollowsTheMusicProperty() {
+        XCTAssertTrue(YeelightDevice.inferredSupport(fromProperties: bulbProperties)
+            .contains(YeelightMethod.setMusic.rawValue))
+        var withoutMusic = bulbProperties
+        withoutMusic["music_on"] = ""
+        XCTAssertFalse(YeelightDevice.inferredSupport(fromProperties: withoutMusic)
+            .contains(YeelightMethod.setMusic.rawValue))
+    }
+}
+
 final class StateParsingTests: XCTestCase {
 
     /// Regression: on a light bar `power` describes the whole device and reads
