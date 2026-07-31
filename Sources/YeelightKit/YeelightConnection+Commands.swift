@@ -112,6 +112,47 @@ extension YeelightConnection {
         try await send(method, parameters: [.int(rgb), .init(effect), .int(duration)])
     }
 
+    // MARK: - Segments
+
+    /// Colours the light's addressable sections in a single command.
+    ///
+    /// Undocumented, and reconstructed from a device rather than from the spec —
+    /// `DEVICES.md` has the evidence. What is established on the Monitor Light
+    /// Bar Pro:
+    ///
+    /// - The array maps **positionally along the bar**, one entry per section.
+    /// - The bar has **three** sections, and anything past the third is dropped
+    ///   silently.
+    /// - The device answers `ok` to arrays of any length, so **the reply proves
+    ///   nothing**; a wrong shape fails invisibly.
+    ///
+    /// Because of that last point this refuses an empty array locally rather
+    /// than sending something that would look successful.
+    ///
+    /// - Parameter colors: packed `0xRRGGBB`, first entry at one end of the light.
+    public func setSegmentColors(_ colors: [Int]) async throws {
+        guard !colors.isEmpty else {
+            throw YeelightError.invalidArgument("a segment update needs at least one colour")
+        }
+        for color in colors {
+            try Self.validate(color, in: 0...0xFFFFFF, name: "rgb")
+        }
+        try await send(.setSegmentRGB, parameters: colors.map { .int($0) })
+    }
+
+    /// Number of independently colourable sections, when this is known.
+    ///
+    /// There is no way to ask the device, and nothing reports it, so this is a
+    /// table of what has actually been observed. `nil` means the light has no
+    /// segments, or has them and we have never counted them.
+    public var segmentCount: Int? {
+        guard device.supports(.setSegmentRGB), !device.support.isEmpty else { return nil }
+        switch device.model {
+        case "lamp15": return 3     // counted on hardware 2026-07-31
+        default: return nil
+        }
+    }
+
     // MARK: - Scenes
 
     /// Applies a whole lighting state in one command, turning the light on as

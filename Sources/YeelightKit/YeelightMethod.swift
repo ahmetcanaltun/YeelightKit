@@ -24,6 +24,9 @@ public enum YeelightMethod: String, Sendable, CaseIterable {
     case cronGet = "cron_get"
     case cronDelete = "cron_del"
     case setMusic = "set_music"
+    /// Colours the addressable sections of the light in one command. Undocumented
+    /// — see `DEVICES.md`. Not every device that has a background light has this.
+    case setSegmentRGB = "set_segment_rgb"
 
     case backgroundSetPower = "bg_set_power"
     case backgroundToggle = "bg_toggle"
