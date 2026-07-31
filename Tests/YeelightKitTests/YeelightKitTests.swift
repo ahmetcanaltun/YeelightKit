@@ -115,6 +115,30 @@ final class StateParsingTests: XCTestCase {
         XCTAssertEqual(state.backgroundColorMode, .rgb)
     }
 
+    /// The sleep timer is set through `set_scene` but counted by the device, so
+    /// `delayoff` is the only way to show how much of it is left.
+    func testParsesTheDeviceSideCountdown() {
+        XCTAssertEqual(YeelightState(properties: ["delayoff": "14"]).sleepMinutesRemaining, 14)
+        // Zero is a real answer — "no timer running" — and must not read as nil.
+        XCTAssertEqual(YeelightState(properties: ["delayoff": "0"]).sleepMinutesRemaining, 0)
+        XCTAssertNil(YeelightState(properties: ["delayoff": ""]).sleepMinutesRemaining)
+    }
+
+    /// Only devices with a moonlight mode answer `active_mode` at all, so an
+    /// empty value has to stay `nil` rather than becoming "not moonlight".
+    func testMoonlightIsUnknownOnDevicesWithoutIt() {
+        XCTAssertNil(YeelightState(properties: ["active_mode": "", "nl_br": ""]).isMoonlight)
+        XCTAssertEqual(YeelightState(properties: ["active_mode": "1", "nl_br": "5"]).isMoonlight, true)
+        XCTAssertEqual(YeelightState(properties: ["active_mode": "0"]).isMoonlight, false)
+        XCTAssertEqual(YeelightState(properties: ["nl_br": "5"]).nightLightBrightness, 5)
+    }
+
+    func testParsesMusicSessionFlag() {
+        XCTAssertEqual(YeelightState(properties: ["music_on": "1"]).isMusicModeOn, true)
+        XCTAssertEqual(YeelightState(properties: ["music_on": "0"]).isMusicModeOn, false)
+        XCTAssertNil(YeelightState(properties: ["music_on": ""]).isMusicModeOn)
+    }
+
     /// Notifications are partial, so merging must not erase what is known.
     func testMergingKeepsValuesTheUpdateOmits() {
         let known = YeelightState(properties: ["power": "on", "bright": "80", "ct": "4000"])

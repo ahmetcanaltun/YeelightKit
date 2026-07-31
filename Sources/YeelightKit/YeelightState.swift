@@ -39,6 +39,17 @@ public struct YeelightState: Sendable, Equatable {
     public var backgroundColorMode: ColorMode?
     public var backgroundIsFlowing: Bool?
 
+    // Device-wide
+    /// Minutes left on the device's own power-off countdown, `0` when none is
+    /// running. The device keeps counting with nothing connected to it.
+    public var sleepMinutesRemaining: Int?
+    /// A music-mode session is live on the device.
+    public var isMusicModeOn: Bool?
+    /// The light is in moonlight mode. `nil` on devices that have no such mode.
+    public var isMoonlight: Bool?
+    /// Night-light brightness, 1...100. Moonlight-capable devices only.
+    public var nightLightBrightness: Int?
+
     public init() {}
 
     /// Builds a state from a `get_prop` answer or a `props` notification.
@@ -72,6 +83,11 @@ public struct YeelightState: Sendable, Equatable {
         backgroundRGB = number(.backgroundRGB)
         backgroundColorMode = number(.backgroundColorMode).flatMap(ColorMode.init(rawValue:))
         if let value = text(.backgroundFlowing) { backgroundIsFlowing = (value == "1") }
+
+        sleepMinutesRemaining = number(.delayOff)
+        if let value = text(.musicOn) { isMusicModeOn = (value == "1") }
+        if let value = number(.activeMode) { isMoonlight = (value == 1) }
+        nightLightBrightness = number(.nightLightBright)
     }
 
     /// Overlays any values the other state actually carries, leaving the rest
@@ -93,6 +109,10 @@ public struct YeelightState: Sendable, Equatable {
         if let v = update.backgroundRGB { result.backgroundRGB = v }
         if let v = update.backgroundColorMode { result.backgroundColorMode = v }
         if let v = update.backgroundIsFlowing { result.backgroundIsFlowing = v }
+        if let v = update.sleepMinutesRemaining { result.sleepMinutesRemaining = v }
+        if let v = update.isMusicModeOn { result.isMusicModeOn = v }
+        if let v = update.isMoonlight { result.isMoonlight = v }
+        if let v = update.nightLightBrightness { result.nightLightBrightness = v }
         return result
     }
 }

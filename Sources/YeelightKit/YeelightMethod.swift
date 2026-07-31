@@ -67,6 +67,16 @@ public enum YeelightProperty: String, Sendable, CaseIterable {
     case flowing
     /// The running flow's `count,action,expression`, useful for diagnostics.
     case flowParameters = "flow_params"
+    /// Minutes left on the device's own power-off countdown, `0` when none is
+    /// set. This is what makes a sleep timer showable rather than only settable.
+    case delayOff = "delayoff"
+    /// "1" while a music-mode session is live.
+    case musicOn = "music_on"
+    /// `0` daylight, `1` moonlight. Empty on devices with no moonlight mode,
+    /// which is how their absence is detected.
+    case activeMode = "active_mode"
+    /// Night-light brightness. Moonlight-capable devices only.
+    case nightLightBright = "nl_br"
 
     case backgroundPower = "bg_power"
     case backgroundBright = "bg_bright"
