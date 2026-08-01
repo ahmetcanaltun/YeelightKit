@@ -96,6 +96,19 @@ public struct ColorFlow: Sendable, Equatable {
     /// Minimum step the firmware accepts.
     public static let minimumStepDuration: Duration = .milliseconds(50)
 
+    /// Whether any step asks for a colour rather than a colour temperature.
+    ///
+    /// Decides where the flow can run: a light with no colour at all — the main
+    /// light of a Monitor Light Bar, for one — can still run a candle or a
+    /// sunrise, and putting those on its background light instead would light
+    /// the wall rather than the desk.
+    public var needsColor: Bool {
+        steps.contains { step in
+            if case .color = step.transition { return true }
+            return false
+        }
+    }
+
     /// The `flow_expression` string: flat groups of
     /// `duration, mode, value, brightness`.
     public var expression: String {
@@ -154,6 +167,42 @@ extension ColorFlow {
             Step(duration: .milliseconds(600), .colorTemperature(kelvin: 2000, brightness: 15)),
             Step(duration: .milliseconds(900), .colorTemperature(kelvin: 1700, brightness: 25))
         ])
+    }
+
+    /// Fast, saturated colour changes. The device does the work, so this costs
+    /// one command however quickly it steps.
+    public static var disco: ColorFlow {
+        let colors = [0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF]
+        return ColorFlow(steps: colors.map {
+            Step(duration: .milliseconds(250), .color(rgb: $0, brightness: 100))
+        })
+    }
+
+    /// Slow drift through deep blues and greens.
+    public static var ocean: ColorFlow {
+        ColorFlow(steps: [
+            Step(duration: .seconds(4), .color(rgb: 0x0033CC, brightness: 60)),
+            Step(duration: .seconds(5), .color(rgb: 0x00A0A0, brightness: 45)),
+            Step(duration: .seconds(4), .color(rgb: 0x0066FF, brightness: 70)),
+            Step(duration: .seconds(5), .color(rgb: 0x004080, brightness: 35))
+        ])
+    }
+
+    /// Dim and warm, brightening to daylight over `duration`, and staying there.
+    ///
+    /// Deliberately colour temperature only, so it can run on a reading light
+    /// that has no colour at all — which is the light a sunrise belongs on.
+    public static func sunrise(over duration: Duration = .seconds(900)) -> ColorFlow {
+        let half = duration / 2
+        return ColorFlow(
+            steps: [
+                Step(duration: .seconds(1), .colorTemperature(kelvin: 1700, brightness: 1)),
+                Step(duration: half, .colorTemperature(kelvin: 2700, brightness: 40)),
+                Step(duration: half, .colorTemperature(kelvin: 5000, brightness: 100))
+            ],
+            changeCount: 3,
+            completion: .keepLast
+        )
     }
 
     /// Fades to warm and dim over `duration`, then turns the light off. Runs
