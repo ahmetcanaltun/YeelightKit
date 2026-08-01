@@ -15,7 +15,17 @@ public enum ColorConversion {
     /// Converts hue and saturation (both 0...1) at full brightness into the
     /// packed 0xRRGGBB integer the `set_rgb` family of commands expects.
     public static func rgb(hue: Double, saturation: Double) -> Int {
-        let v: Double = 1.0 // Full brightness
+        rgb(hue: hue, saturation: saturation, value: 1)
+    }
+
+    /// As above, but dimming the colour itself rather than the light.
+    ///
+    /// Brightness is normally the device's own `set_bright`, which applies to
+    /// the whole light. An animation that wants one section brighter than
+    /// another has no such command, so the darkness has to be carried in the
+    /// colour.
+    public static func rgb(hue: Double, saturation: Double, value: Double) -> Int {
+        let v = min(1, max(0, value))
         let h = min(1, max(0, hue))
         let s = min(1, max(0, saturation))
 
