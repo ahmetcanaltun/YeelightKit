@@ -74,6 +74,48 @@ final class DeviceCapabilityTests: XCTestCase {
         XCTAssertTrue(lightBar.supports(.setColorTemperature))
     }
 
+    /// The light bar has two engines with different abilities, so where a flow
+    /// runs depends on what the flow asks for — not on where colour happens to
+    /// live. A candle on a light bar belongs on the desk, not on the wall.
+    func testAFlowRunsOnWhicheverEngineCanShowIt() {
+        let bar = YeelightDevice(
+            id: "bar", host: "1.1.1.1",
+            support: ["get_prop", "set_power", "set_ct_abx", "set_bright", "start_cf", "stop_cf",
+                      "bg_set_power", "bg_set_rgb", "bg_set_ct_abx", "bg_start_cf", "bg_stop_cf"]
+        )
+        XCTAssertEqual(bar.endpoint(for: .candle), .main, "a colour-temperature flow needs no colour")
+        XCTAssertEqual(bar.endpoint(for: .rainbow), .background, "colour only exists there")
+        XCTAssertEqual(bar.endpoint(for: .sunrise()), .main)
+    }
+
+    /// A bulb has one engine that does everything, so everything runs there.
+    func testABulbRunsEveryFlowOnItsOnlyEngine() {
+        let bulb = YeelightDevice(
+            id: "bulb", host: "1.1.1.2",
+            support: ["get_prop", "set_power", "set_rgb", "set_ct_abx", "start_cf", "stop_cf"]
+        )
+        XCTAssertEqual(bulb.endpoint(for: .rainbow), .main)
+        XCTAssertEqual(bulb.endpoint(for: .candle), .main)
+    }
+
+    /// A white-only light can still run the flows that ask for no colour.
+    func testAWhiteOnlyLightStillRunsColourTemperatureFlows() {
+        let mono = YeelightDevice(
+            id: "mono", host: "1.1.1.3",
+            support: ["get_prop", "set_power", "set_bright", "set_ct_abx", "start_cf", "stop_cf"]
+        )
+        XCTAssertNil(mono.endpoint(for: .rainbow))
+        XCTAssertEqual(mono.endpoint(for: .sunset()), .main)
+    }
+
+    func testAFlowKnowsWhetherItNeedsColour() {
+        XCTAssertTrue(ColorFlow.rainbow.needsColor)
+        XCTAssertTrue(ColorFlow.ocean.needsColor)
+        XCTAssertFalse(ColorFlow.candle.needsColor)
+        XCTAssertFalse(ColorFlow.sunrise().needsColor)
+        XCTAssertFalse(ColorFlow.sunset().needsColor)
+    }
+
     /// A hand-entered device advertises nothing, so nothing may be ruled out.
     func testUnknownCapabilitiesAreTreatedAsPermitted() {
         let manual = YeelightDevice(id: "m", host: "10.0.0.2")

@@ -71,6 +71,31 @@ public struct YeelightDevice: Sendable, Identifiable, Hashable, Codable {
         return nil
     }
 
+    /// One of a device's two light engines.
+    public enum Endpoint: Sendable, Equatable {
+        case main
+        case background
+    }
+
+    /// Where a colour flow should run on this device, or `nil` if it cannot run
+    /// at all.
+    ///
+    /// A flow needs an engine that can reach every colour it asks for, and the
+    /// two engines differ: a Monitor Light Bar's main light has colour
+    /// temperature and no colour, while its background light has both. So a
+    /// candle belongs on the main light and a rainbow has to go to the
+    /// background, on the same device.
+    public func endpoint(for flow: ColorFlow) -> Endpoint? {
+        if flow.needsColor {
+            if supports(.setRGB), supports(.startColorFlow) { return .main }
+            if supports(.backgroundSetRGB), supports(.backgroundStartColorFlow) { return .background }
+            return nil
+        }
+        if supports(.setColorTemperature), supports(.startColorFlow) { return .main }
+        if supports(.backgroundSetColorTemperature), supports(.backgroundStartColorFlow) { return .background }
+        return nil
+    }
+
     public static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
     public func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }

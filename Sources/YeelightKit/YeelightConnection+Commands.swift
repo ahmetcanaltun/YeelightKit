@@ -186,22 +186,33 @@ extension YeelightConnection {
         try await send(.backgroundStopColorFlow)
     }
 
-    /// Runs the flow wherever this device can show colour — the main light on a
-    /// bulb, the background light on a Monitor Light Bar.
+    /// Runs the flow on whichever light engine can show what it asks for.
+    ///
+    /// Not always the colour endpoint: a flow made only of colour temperatures
+    /// runs on the main light even where colour has to go to the background
+    /// one. See ``YeelightDevice/endpoint(for:)``.
     public func startOnAvailableEndpoint(_ flow: ColorFlow) async throws {
-        switch device.colorMethod {
-        case .setRGB: try await start(flow)
-        case .backgroundSetRGB: try await startBackgroundColorFlow(flow)
-        default: throw YeelightError.unsupportedMethod(.startColorFlow)
+        switch device.endpoint(for: flow) {
+        case .main: try await start(flow)
+        case .background: try await startBackgroundColorFlow(flow)
+        case nil: throw YeelightError.unsupportedMethod(.startColorFlow)
         }
     }
 
-    /// Stops a flow on whichever endpoint ``startOnAvailableEndpoint(_:)`` used.
+    /// Stops whatever is flowing on this device.
+    ///
+    /// Both engines are stopped rather than the one a caller believes it
+    /// started, because a flow outlives the process that started it: after a
+    /// relaunch nobody knows which engine is animating, and the honest answer
+    /// to "stop the effect" is to stop any of them. A device with nothing
+    /// running answers with an error, which is not a failure here.
     public func stopFlowOnAvailableEndpoint() async throws {
-        switch device.colorMethod {
-        case .setRGB: try await stopColorFlow()
-        case .backgroundSetRGB: try await stopBackgroundColorFlow()
-        default: throw YeelightError.unsupportedMethod(.stopColorFlow)
+        let methods = [YeelightMethod.stopColorFlow, .backgroundStopColorFlow]
+            .filter { device.supports($0) }
+        guard !methods.isEmpty else { throw YeelightError.unsupportedMethod(.stopColorFlow) }
+
+        for method in methods {
+            do { try await send(method) } catch is YeelightError { continue }
         }
     }
 
