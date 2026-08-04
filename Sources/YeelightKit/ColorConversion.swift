@@ -56,6 +56,49 @@ public enum ColorConversion {
         return (red << 16) | (green << 8) | blue
     }
 
+    /// A colour temperature as the packed RGB the colour commands take.
+    ///
+    /// Lights that accept `set_ct_abx` do this themselves; this is for the ones
+    /// that do not. A background channel is RGB-only on every device seen so
+    /// far, so warming it with the evening means computing what 2700 K looks
+    /// like rather than asking for it.
+    ///
+    /// Daniel Tanner's piecewise fit to the blackbody curve, which is accurate
+    /// to a couple of percent over the range any lamp offers and is the same
+    /// approximation every lighting project ends up using. Clamped to
+    /// 1000–40000 K because the fit's logarithms are only defined there — the
+    /// device's own range (1700–6500 K) sits comfortably inside it.
+    public static func rgb(kelvin: Int) -> Int {
+        let temperature = Double(min(40000, max(1000, kelvin))) / 100
+
+        let red: Double
+        if temperature <= 66 {
+            red = 255
+        } else {
+            red = 329.698727446 * pow(temperature - 60, -0.1332047592)
+        }
+
+        let green: Double
+        if temperature <= 66 {
+            green = 99.4708025861 * log(temperature) - 161.1195681661
+        } else {
+            green = 288.1221695283 * pow(temperature - 60, -0.0755148492)
+        }
+
+        let blue: Double
+        if temperature >= 66 {
+            blue = 255
+        } else if temperature <= 19 {
+            // Below roughly 1900 K there is no blue in the fire at all.
+            blue = 0
+        } else {
+            blue = 138.5177312231 * log(temperature - 10) - 305.0447927307
+        }
+
+        func byte(_ value: Double) -> Int { Int(min(255, max(0, value)).rounded()) }
+        return (byte(red) << 16) | (byte(green) << 8) | byte(blue)
+    }
+
     /// Inverse of `rgb(hue:saturation:)`, discarding brightness.
     public static func hueSaturation(fromRGB rgb: Int) -> (hue: Double, saturation: Double) {
         let r = Double((rgb >> 16) & 0xFF) / 255.0
