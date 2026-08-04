@@ -56,4 +56,19 @@ final class LightSceneTests: XCTestCase {
     func testRejectsAnRGBValueThatDoesNotFitInThreeBytes() {
         XCTAssertThrowsError(try LightScene.color(rgb: 0x1000000, brightness: 50).validated())
     }
+
+    /// A saved preset is a stored scene, so every case has to survive the round
+    /// trip — including the ones an application is unlikely to save today.
+    func testEverySceneSurvivesBeingStoredAndReadBack() throws {
+        let scenes: [LightScene] = [
+            .color(rgb: 0xFF4500, brightness: 30),
+            .hsv(hue: 200, saturation: 80, brightness: 60),
+            .colorTemperature(kelvin: 2700, brightness: 100),
+            .autoDelayOff(brightness: 40, minutes: 15)
+        ]
+        for scene in scenes {
+            let data = try JSONEncoder().encode(scene)
+            XCTAssertEqual(try JSONDecoder().decode(LightScene.self, from: data), scene)
+        }
+    }
 }

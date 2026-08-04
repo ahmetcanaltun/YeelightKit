@@ -12,7 +12,9 @@ import Foundation
 /// `set_scene` takes the power-on and the settings together, so there is no race
 /// to lose — and it costs one command against the 60-per-minute quota instead of
 /// three.
-public enum LightScene: Sendable, Equatable {
+/// `Codable` because a scene is exactly what an application saves when it saves
+/// a preset: the whole lighting state, in the form the device accepts it.
+public enum LightScene: Sendable, Equatable, Codable {
 
     /// A colour at a brightness.
     case color(rgb: Int, brightness: Int)
