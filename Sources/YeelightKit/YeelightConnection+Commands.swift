@@ -98,6 +98,25 @@ extension YeelightConnection {
         try await send(.backgroundSetRGB, parameters: [.int(rgb), .init(effect), .int(duration)])
     }
 
+    /// The background light's own hue and saturation, for the same reason as
+    /// ``setColor(hue:saturation:effect:duration:)``: a picker works in HSV, and
+    /// converting to RGB on the way out throws away precision the device would
+    /// have accepted.
+    /// - Parameters:
+    ///   - hue: 0...359
+    ///   - saturation: 0...100
+    public func setBackgroundColor(
+        hue: Int,
+        saturation: Int,
+        effect: YeelightEffect = .smooth,
+        duration: Int = defaultDuration
+    ) async throws {
+        try Self.validate(hue, in: 0...359, name: "hue")
+        try Self.validate(saturation, in: 0...100, name: "saturation")
+        try await send(.backgroundSetHSV,
+                       parameters: [.int(hue), .int(saturation), .init(effect), .int(duration)])
+    }
+
     /// Sets a colour on whichever endpoint this device actually has: the main
     /// light on a bulb, the background light on a Monitor Light Bar.
     public func setColorOnAvailableEndpoint(
