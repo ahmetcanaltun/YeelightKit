@@ -26,7 +26,7 @@ await connection.close()   // release the device's connection slot
 ## Install
 
 ```swift
-.package(url: "https://github.com/wakawakayashi/YeelightKit", from: "0.1.0")
+.package(url: "https://github.com/ahmetcanaltun/YeelightKit", from: "0.1.0")
 ```
 
 Requires macOS 13 / iOS 16 or later.
